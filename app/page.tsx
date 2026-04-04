@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Play, ArrowRight, Code, Zap, Globe, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -8,7 +8,12 @@ import { Button } from "@/components/ui/button"
 export default function HomePage() {
   const [url, setUrl] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [origin, setOrigin] = useState("https://yoursite.com")
   const router = useRouter()
+
+  useEffect(() => {
+    setOrigin(window.location.origin)
+  }, [])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -218,7 +223,7 @@ export default function HomePage() {
           <div className="inline-block bg-card border border-border rounded-xl p-4 text-left font-mono text-sm">
             <p className="text-muted-foreground mb-2">Use the following format:</p>
             <code className="text-primary">
-              {typeof window !== 'undefined' ? window.location.origin : 'https://yoursite.com'}/proxy/
+              {origin}/proxy/
               <span className="text-foreground">{'example.com/video/123'}</span>
             </code>
           </div>
