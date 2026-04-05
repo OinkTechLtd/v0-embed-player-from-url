@@ -35,10 +35,19 @@ export async function GET(request: NextRequest) {
     const playerData = extractPlayers(html, baseUrl.origin)
 
     if (playerData.length === 0) {
-      return NextResponse.json({ 
-        error: 'no_player',
-        message: 'No video player found on this page. Try a URL with a video player.'
-      }, { status: 404 })
+      const proxiedPageUrl = `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`
+      return NextResponse.json({
+        success: true,
+        fallback: true,
+        message: 'No direct embed player found. Showing proxied page in fullscreen mode.',
+        players: [
+          {
+            type: 'iframe',
+            src: proxiedPageUrl,
+          },
+        ],
+        sourceUrl: targetUrl,
+      })
     }
 
     return NextResponse.json({ 
