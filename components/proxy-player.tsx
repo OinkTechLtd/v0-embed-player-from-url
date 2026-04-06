@@ -30,6 +30,7 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
   const [selectedPlayer, setSelectedPlayer] = useState(0)
   const [copied, setCopied] = useState(false)
   const [showEmbedCode, setShowEmbedCode] = useState(false)
+  const [origin, setOrigin] = useState("")
 
   const buildFallbackPlayer = (source?: string): PlayerInfo => {
     const targetUrl = source?.startsWith("http") ? source : url.startsWith("http") ? url : `https://${url}`
@@ -110,12 +111,15 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
     fetchPlayer()
   }, [url])
 
+  useEffect(() => {
+    setOrigin(window.location.origin)
+  }, [])
+
+  const embedProxyUrl = `${origin}/proxy/${encodeURIComponent(url)}`
+
   const copyEmbedCode = () => {
-    if (!data?.players?.[selectedPlayer]) return
-    
-    const player = data.players[selectedPlayer]
-    const embedCode = `<iframe src="${player.src}" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>`
-    
+    const embedCode = `<iframe src="${embedProxyUrl}" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>`
+
     navigator.clipboard.writeText(embedCode)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -211,7 +215,7 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground mb-1.5">Embed Code:</p>
               <code className="block bg-secondary rounded-lg p-2 text-xs text-foreground break-all overflow-x-auto">
-                {`<iframe src="${currentPlayer.src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`}
+                {`<iframe src="${embedProxyUrl}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`}
               </code>
               {players.length > 1 && (
                 <select

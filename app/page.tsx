@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Play, ArrowRight, Code, Zap, Globe, Monitor, Languages } from "lucide-react"
+import { Play, ArrowRight, Code, Zap, Globe, Monitor, Languages, CircleHelp, BookOpenText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 type Locale = "en" | "ru"
@@ -12,6 +12,8 @@ const copy = {
     badge: "Stable video proxy with retries",
     how: "How it works",
     features: "Features",
+    docs: "Docs",
+    faq: "FAQ",
     heroTitleA: "Extract & Embed Video Players",
     heroTitleB: "From Any Website",
     heroText:
@@ -35,6 +37,20 @@ const copy = {
     f4Text: "If direct source is blocked, proxied-page fallback is used.",
     format: "URL Format",
     formatText: "Use the following format:",
+    docsTitle: "Docs",
+    docsItem1Title: "Quick Start",
+    docsItem1Text: "Paste a page URL on the main screen and open /proxy/{target-url}.",
+    docsItem2Title: "Embed on your website",
+    docsItem2Text: "Use the Embed button in the player view to copy iframe code with your own domain.",
+    docsItem3Title: "API Endpoints",
+    docsItem3Text: "GET /api/proxy for source extraction and /api/proxy/page for fallback rendering.",
+    faqTitle: "FAQ",
+    faqItem1Q: "Why does embed use my domain?",
+    faqItem1A: "So your website always points to your proxy player URL instead of third-party player links.",
+    faqItem2Q: "Can I embed blocked players?",
+    faqItem2A: "If direct source fails, fallback mode loads the proxied page when possible.",
+    faqItem3Q: "What URL should I open directly?",
+    faqItem3A: "Use /proxy/{encoded-target-url}. Example is shown below in URL format.",
     footer: "EmbedProxy - stable video extraction service",
     lang: "Русский",
   },
@@ -42,6 +58,8 @@ const copy = {
     badge: "Стабильный видеопрокси с ретраями",
     how: "Как это работает",
     features: "Возможности",
+    docs: "Документация",
+    faq: "FAQ",
     heroTitleA: "Извлечение и встраивание плеера",
     heroTitleB: "С любого сайта",
     heroText:
@@ -65,6 +83,20 @@ const copy = {
     f4Text: "Если прямой источник блокируется, включается прокси-страница.",
     format: "Формат URL",
     formatText: "Используйте такой формат:",
+    docsTitle: "Документация",
+    docsItem1Title: "Быстрый старт",
+    docsItem1Text: "Вставьте ссылку на страницу и откройте /proxy/{target-url}.",
+    docsItem2Title: "Встраивание на сайт",
+    docsItem2Text: "Кнопка Embed в плеере копирует iframe с вашим доменом, а не со стороннего сайта.",
+    docsItem3Title: "API endpoints",
+    docsItem3Text: "GET /api/proxy извлекает источники, а /api/proxy/page используется как fallback.",
+    faqTitle: "FAQ",
+    faqItem1Q: "Почему embed теперь с моим доменом?",
+    faqItem1A: "Чтобы встраивание всегда шло через ваш прокси-плеер и не ломалось из-за прямых ссылок источника.",
+    faqItem2Q: "Можно ли встраивать заблокированные плееры?",
+    faqItem2A: "Если прямой источник недоступен, включается fallback-режим с проксированной страницей.",
+    faqItem3Q: "Какой URL открывать напрямую?",
+    faqItem3A: "Используйте /proxy/{encoded-target-url}. Пример показан ниже в блоке формата.",
     footer: "EmbedProxy - сервис стабильного извлечения плееров",
     lang: "English",
   },
@@ -118,6 +150,12 @@ export default function HomePage() {
               </a>
               <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors">
                 {t.features}
+              </a>
+              <a href="#docs" className="text-muted-foreground hover:text-foreground transition-colors">
+                {t.docs}
+              </a>
+              <a href="#faq" className="text-muted-foreground hover:text-foreground transition-colors">
+                {t.faq}
               </a>
             </nav>
             <Button
@@ -205,6 +243,46 @@ export default function HomePage() {
                 <div>
                   <h3 className="text-lg font-semibold text-foreground mb-1">{item.title}</h3>
                   <p className="text-muted-foreground">{item.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="docs" className="mb-20">
+          <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-12">{t.docsTitle}</h2>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              { icon: BookOpenText, title: t.docsItem1Title, text: t.docsItem1Text },
+              { icon: Code, title: t.docsItem2Title, text: t.docsItem2Text },
+              { icon: Globe, title: t.docsItem3Title, text: t.docsItem3Text },
+            ].map((item) => (
+              <div key={item.title} className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary mb-4">
+                  <item.icon className="h-5 w-5" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground mb-2">{item.title}</h3>
+                <p className="text-muted-foreground">{item.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="faq" className="mb-20">
+          <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-12">{t.faqTitle}</h2>
+          <div className="max-w-4xl mx-auto grid gap-4">
+            {[
+              { q: t.faqItem1Q, a: t.faqItem1A },
+              { q: t.faqItem2Q, a: t.faqItem2A },
+              { q: t.faqItem3Q, a: t.faqItem3A },
+            ].map((item) => (
+              <div key={item.q} className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-start gap-3">
+                  <CircleHelp className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground mb-1">{item.q}</h3>
+                    <p className="text-muted-foreground">{item.a}</p>
+                  </div>
                 </div>
               </div>
             ))}
