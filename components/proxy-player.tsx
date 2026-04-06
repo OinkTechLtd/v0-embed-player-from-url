@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { AlertCircle, ArrowLeft, Code, Copy, Check, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from "lucide-react"
+import { AlertCircle, ArrowLeft, Code, Copy, Check, RefreshCw, ChevronDown, ChevronUp } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 
@@ -122,68 +122,42 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col">
-      {/* Compact Header */}
-      <div className="bg-background/95 backdrop-blur border-b border-border px-3 py-2 flex items-center justify-between gap-2 shrink-0 z-10">
-        <div className="flex items-center gap-2 min-w-0">
-          <Link 
-            href="/" 
-            className="flex items-center justify-center h-8 w-8 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors shrink-0"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          
-          {players.length > 1 && (
-            <select
-              value={selectedPlayer}
-              onChange={(e) => setSelectedPlayer(Number(e.target.value))}
-              className="h-8 px-2 rounded-lg bg-secondary border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
-            >
-              {players.map((player, index) => (
-                <option key={index} value={index}>
-                  Source {index + 1} ({player.type})
-                </option>
-              ))}
-            </select>
-          )}
-
-          <span className="text-xs text-muted-foreground truncate hidden sm:block">
-            {url}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowEmbedCode(!showEmbedCode)}
-            className="h-8 gap-1.5 text-xs"
-          >
-            <Code className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Embed</span>
-            {showEmbedCode ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </Button>
-          
-          <a
-            href={currentPlayer.src}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-secondary transition-colors"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </div>
+    <div className="fixed inset-0 bg-black">
+      <div className="absolute top-3 right-3 z-20">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowEmbedCode(!showEmbedCode)}
+          className="h-9 gap-1.5 text-xs shadow-lg"
+        >
+          <Code className="h-3.5 w-3.5" />
+          <span>Embed</span>
+          {showEmbedCode ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </Button>
       </div>
 
       {/* Embed Code Panel */}
       {showEmbedCode && (
-        <div className="bg-card/95 backdrop-blur border-b border-border px-3 py-3 shrink-0 z-10">
+        <div className="absolute top-14 right-3 z-20 w-[min(94vw,560px)] rounded-xl border border-border bg-card/95 backdrop-blur p-3 shadow-lg">
           <div className="flex items-start gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground mb-1.5">Embed Code:</p>
               <code className="block bg-secondary rounded-lg p-2 text-xs text-foreground break-all overflow-x-auto">
                 {`<iframe src="${currentPlayer.src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`}
               </code>
+              {players.length > 1 && (
+                <select
+                  value={selectedPlayer}
+                  onChange={(e) => setSelectedPlayer(Number(e.target.value))}
+                  className="mt-2 h-8 w-full rounded-lg bg-secondary border-0 px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+                >
+                  {players.map((player, index) => (
+                    <option key={index} value={index}>
+                      Source {index + 1} ({player.type})
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <Button
               variant="outline"
@@ -207,8 +181,8 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
         </div>
       )}
 
-      {/* Player - takes remaining space */}
-      <div className="flex-1 relative min-h-0">
+      {/* Player - full viewport */}
+      <div className="relative h-full w-full">
         {currentPlayer.type === 'video' ? (
           <video
             src={currentPlayer.src}
