@@ -9,7 +9,6 @@ interface PlayerInfo {
   src: string
   width?: string
   height?: string
-  fallback?: boolean
 }
 
 interface FetchResult {
@@ -45,17 +44,10 @@ export async function GET(request: NextRequest) {
 
     if (playerData.length === 0) {
       return NextResponse.json({
-        success: true,
-        warning: 'no_player_detected',
-        message: 'Direct player source was not found. Showing proxied page fallback.',
+        success: false,
+        error: 'no_player',
+        message: 'Direct player source was not found on this page.',
         sourceUrl: targetUrl,
-        players: [
-          {
-            type: 'iframe',
-            src: buildProxyPageUrl(targetUrl),
-            fallback: true,
-          },
-        ],
       })
     }
 
@@ -68,17 +60,10 @@ export async function GET(request: NextRequest) {
     console.error('Proxy error:', error)
 
     return NextResponse.json({
-      success: true,
-      warning: 'upstream_fetch_failed',
-      message: 'Could not extract a direct player source. Showing proxied page fallback.',
+      success: false,
+      error: 'upstream_fetch_failed',
+      message: 'Could not extract a direct player source.',
       sourceUrl: targetUrl,
-      players: [
-        {
-          type: 'iframe',
-          src: buildProxyPageUrl(targetUrl),
-          fallback: true,
-        },
-      ],
       details: error instanceof Error ? error.message : 'Unknown error',
     })
   }
@@ -235,11 +220,17 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  return players.filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
-}
+  const discoveredScriptUrls = extractScriptLikeUrls(normalizedHtml, pageUrl)
+  for (const src of discoveredScriptUrls) {
+    if (isVideoPlayer(src, src)) {
+      players.push({
+        type: getPlayerType(src),
+        src,
+      })
+    }
+  }
 
-function buildProxyPageUrl(targetUrl: string): string {
-  return `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`
+  return players.filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
 }
 
 function resolveUrl(url: string, pageUrl: string): string {
@@ -258,7 +249,60 @@ function extractAttribute(tag: string, attr: string): string | undefined {
 
 function isLikelyVideoSource(src: string): boolean {
   const value = src.toLowerCase()
-  return ['.m3u8', '.mp4', '.webm', '.mpd', '/embed/', '/player/', 'video'].some((pattern) => value.includes(pattern))
+  return [
+    '.m3u8',
+    '.mp4',
+    '.webm',
+    '.mpd',
+    '.m3u',
+    '/embed/',
+    '/player/',
+    '/playlist/',
+    'video',
+    'stream',
+    'manifest',
+  ].some((pattern) => value.includes(pattern))
+}
+
+function getPlayerType(src: string): PlayerInfo['type'] {
+  const value = src.toLowerCase()
+  if (value.endsWith('.mp4') || value.endsWith('.m3u8') || value.endsWith('.mpd') || value.includes('/hls/')) {
+    return 'video'
+  }
+  return 'iframe'
+}
+
+function extractScriptLikeUrls(html: string, pageUrl: string): string[] {
+  const decodedHtml = html
+    .replace(/\\u002F/gi, '/')
+    .replace(/\\u003A/gi, ':')
+    .replace(/\\x2f/gi, '/')
+    .replace(/&quot;/gi, '"')
+
+  const matches = new Set<string>()
+  const urlRegex =
+    /(?:https?:)?\/\/[^\s"'<>\\]+(?:\.m3u8|\.mpd|\.mp4|\/embed\/[^\s"'<>\\]*|\/player\/[^\s"'<>\\]*|\/playlist\/[^\s"'<>\\]*)/gi
+
+  let match
+  while ((match = urlRegex.exec(decodedHtml)) !== null) {
+    const resolved = resolveUrl(match[0], pageUrl)
+    if (isLikelyVideoSource(resolved)) {
+      matches.add(resolved)
+    }
+  }
+
+  const ruBroadcasterHintRegex =
+    /(?:player\.)?(?:ntv\.ru|vgtrk\.ru|smotrim\.ru|rtr-planeta\.com)[^\s"'<>\\]*/gi
+
+  while ((match = ruBroadcasterHintRegex.exec(decodedHtml)) !== null) {
+    const maybeUrl = match[0].startsWith('http') ? match[0] : `https://${match[0]}`
+    const resolved = resolveUrl(maybeUrl, pageUrl)
+    if (isLikelyVideoSource(resolved)) {
+      matches.add(resolved)
+    }
+  }
+
+  return [...matches]
 }
 
 function isVideoPlayer(src: string, tag: string): boolean {

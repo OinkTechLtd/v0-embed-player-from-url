@@ -32,35 +32,6 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
   const [showEmbedCode, setShowEmbedCode] = useState(false)
   const [origin, setOrigin] = useState("")
 
-  const buildFallbackPlayer = (source?: string): PlayerInfo => {
-    const targetUrl = source?.startsWith("http") ? source : url.startsWith("http") ? url : `https://${url}`
-    return {
-      type: "iframe",
-      src: `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`,
-    }
-  }
-
-  const ensurePlayers = (result: ProxyResult | null): ProxyResult => {
-    if (!result) {
-      return {
-        success: true,
-        message: "Fallback mode enabled.",
-        players: [buildFallbackPlayer()],
-      }
-    }
-
-    if (result.players && result.players.length > 0) {
-      return result
-    }
-
-    return {
-      ...result,
-      success: true,
-      message: result.message || "Direct player source missing. Using fallback player.",
-      players: [buildFallbackPlayer(result.sourceUrl)],
-    }
-  }
-
   const fetchPlayer = async () => {
     setLoading(true)
     const targetUrl = url.startsWith('http') ? url : `https://${url}`
@@ -95,12 +66,14 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 500))
       }
 
-      setData(ensurePlayers(result))
+      setData(result)
     } catch {
       setData(
-        ensurePlayers({
-          message: "Failed to connect after several retries. Fallback mode enabled.",
-        }),
+        {
+          success: false,
+          error: "upstream_fetch_failed",
+          message: "Failed to connect after several retries.",
+        },
       )
     } finally {
       setLoading(false)
@@ -150,8 +123,8 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
             Player Not Found
           </h1>
           <p className="text-muted-foreground mb-6">
-            {data.error === 'no_player' 
-              ? 'No video player was found on this page. Please try a URL that contains a video player.'
+            {data.error === 'no_player'
+              ? 'No direct video player was found on this page. Open the page with a specific article/video URL, not the home page.'
               : data.message || 'An error occurred while processing your request.'}
           </p>
           <div className="bg-card border border-border rounded-xl p-4 mb-6 text-left">
