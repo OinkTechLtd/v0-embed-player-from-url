@@ -66,13 +66,21 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Proxy error:', error)
-    return NextResponse.json(
-      {
-        error: 'Failed to process the request',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 502 },
-    )
+
+    return NextResponse.json({
+      success: true,
+      warning: 'upstream_fetch_failed',
+      message: 'Could not extract a direct player source. Showing proxied page fallback.',
+      sourceUrl: targetUrl,
+      players: [
+        {
+          type: 'iframe',
+          src: buildProxyPageUrl(targetUrl),
+          fallback: true,
+        },
+      ],
+      details: error instanceof Error ? error.message : 'Unknown error',
+    })
   }
 }
 
