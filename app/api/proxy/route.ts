@@ -38,14 +38,19 @@ export async function GET(request: NextRequest) {
     const playerData = extractPlayers(html, targetUrl)
 
     if (playerData.length === 0) {
-      return NextResponse.json(
-        {
-          error: 'no_player',
-          message: 'No embeddable video player found on this page.',
-          sourceUrl: targetUrl,
-        },
-        { status: 404 },
-      )
+      return NextResponse.json({
+        success: true,
+        warning: 'no_player_detected',
+        message: 'Direct player source was not found. Showing proxied page fallback.',
+        sourceUrl: targetUrl,
+        players: [
+          {
+            type: 'iframe',
+            src: buildProxyPageUrl(targetUrl),
+            fallback: true,
+          },
+        ],
+      })
     }
 
     return NextResponse.json({
@@ -70,16 +75,18 @@ interface PlayerInfo {
   src: string
   width?: string
   height?: string
+  fallback?: boolean
 }
 
 function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   const players: PlayerInfo[] = []
+  const normalizedHtml = html.replace(/\\\//g, '/')
 
   // Extract iframes (most common for video embeds)
   const iframeRegex = /<iframe[^>]*\s+src=["']([^"']+)["'][^>]*>/gi
   let match
 
-  while ((match = iframeRegex.exec(html)) !== null) {
+  while ((match = iframeRegex.exec(normalizedHtml)) !== null) {
     const src = resolveUrl(match[1], pageUrl)
     const fullTag = match[0]
 
@@ -98,7 +105,7 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   const videoRegex =
     /<video[^>]*(?:\s+src=["']([^"']+)["'])?[^>]*>(?:[\s\S]*?<source[^>]*\s+src=["']([^"']+)["'][^>]*>)?/gi
 
-  while ((match = videoRegex.exec(html)) !== null) {
+  while ((match = videoRegex.exec(normalizedHtml)) !== null) {
     const src = match[1] || match[2]
     if (src) {
       players.push({
@@ -113,7 +120,7 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   // Extract embed elements
   const embedRegex = /<embed[^>]*\s+src=["']([^"']+)["'][^>]*>/gi
 
-  while ((match = embedRegex.exec(html)) !== null) {
+  while ((match = embedRegex.exec(normalizedHtml)) !== null) {
     const src = resolveUrl(match[1], pageUrl)
     if (isVideoPlayer(src, match[0])) {
       players.push({
@@ -127,7 +134,7 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   const objectRegex =
     /<object[^>]*>[\s\S]*?<param[^>]*name=["']?(?:movie|src)["']?[^>]*value=["']([^"']+)["'][^>]*>[\s\S]*?<\/object>/gi
 
-  while ((match = objectRegex.exec(html)) !== null) {
+  while ((match = objectRegex.exec(normalizedHtml)) !== null) {
     const src = resolveUrl(match[1], pageUrl)
     players.push({
       type: 'object',
@@ -138,7 +145,7 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   // Look for common video player patterns in data attributes
   const dataVideoRegex = /data-(?:video-?(?:url|src|id)|src|url|embed)=["']([^"']+)["']/gi
 
-  while ((match = dataVideoRegex.exec(html)) !== null) {
+  while ((match = dataVideoRegex.exec(normalizedHtml)) !== null) {
     const src = match[1]
     if (src && isLikelyVideoSource(src)) {
       players.push({
@@ -151,7 +158,7 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   // Look for direct media links and player endpoints in inline scripts/JSON
   const scriptSourceRegex = /["']((?:https?:)?\/\/[^"']+(?:\.m3u8|\.mpd|\.mp4|\/embed\/[^"']+|\/player\/[^"']+))["']/gi
 
-  while ((match = scriptSourceRegex.exec(html)) !== null) {
+  while ((match = scriptSourceRegex.exec(normalizedHtml)) !== null) {
     const src = resolveUrl(match[1], pageUrl)
     if (isVideoPlayer(src, match[0])) {
       players.push({
@@ -165,6 +172,10 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   const uniquePlayers = players.filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
 
   return uniquePlayers
+}
+
+function buildProxyPageUrl(targetUrl: string): string {
+  return `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`
 }
 
 function resolveUrl(url: string, pageUrl: string): string {
