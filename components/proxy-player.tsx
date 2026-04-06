@@ -33,15 +33,42 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
 
   const fetchPlayer = async () => {
     setLoading(true)
+    const targetUrl = url.startsWith('http') ? url : `https://${url}`
+
     try {
-      const targetUrl = url.startsWith('http') ? url : `https://${url}`
-      const response = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`)
-      const result = await response.json()
+      let result: ProxyResult | null = null
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 15000)
+
+        try {
+          const response = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          })
+
+          result = await response.json()
+
+          if (response.ok || attempt === 3) {
+            break
+          }
+        } catch (error) {
+          if (attempt === 3) {
+            throw error
+          }
+        } finally {
+          clearTimeout(timeout)
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, attempt * 500))
+      }
+
       setData(result)
-    } catch (error) {
-      setData({ 
-        error: 'fetch_error',
-        message: 'Failed to connect. Please check your internet connection.'
+    } catch {
+      setData({
+        error: "fetch_error",
+        message: "Failed to connect after several retries. Проверьте интернет и попробуйте снова.",
       })
     } finally {
       setLoading(false)

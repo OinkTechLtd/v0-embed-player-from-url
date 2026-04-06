@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
+const REQUEST_TIMEOUT_MS = 12000
+const MAX_RETRIES = 3
+
+interface PlayerInfo {
+  type: 'iframe' | 'video' | 'embed' | 'object'
+  src: string
+  width?: string
+  height?: string
+  fallback?: boolean
+}
+
+interface FetchResult {
+  response: Response
+  html: string
+}
+
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url')
 
@@ -7,35 +24,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'URL is required' }, { status: 400 })
   }
 
+  const targetUrl = normalizeUrl(url)
+  if (!targetUrl) {
+    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 })
+  }
+
   try {
-    const targetUrl = url.startsWith('http') ? url : `https://${url}`
+    const result = await fetchHtmlWithRetry(targetUrl)
+    const contentType = result.response.headers.get('content-type')?.toLowerCase() || ''
 
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        Connection: 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-      },
-    })
-
-    if (!response.ok) {
-      return NextResponse.json(
-        {
-          error: 'Failed to fetch the page',
-          status: response.status,
-        },
-        { status: response.status },
-      )
+    if (contentType.includes('video/') || targetUrl.match(/\.(m3u8|mpd|mp4|webm)(\?|$)/i)) {
+      return NextResponse.json({
+        success: true,
+        sourceUrl: targetUrl,
+        players: [{ type: 'video', src: targetUrl }],
+      })
     }
 
-    const html = await response.text()
-
-    // Extract players from the HTML
-    const playerData = extractPlayers(html, targetUrl)
+    const playerData = extractPlayers(result.html, targetUrl)
 
     if (playerData.length === 0) {
       return NextResponse.json({
@@ -65,24 +71,83 @@ export async function GET(request: NextRequest) {
         error: 'Failed to process the request',
         details: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 },
+      { status: 502 },
     )
   }
 }
 
-interface PlayerInfo {
-  type: 'iframe' | 'video' | 'embed' | 'object'
-  src: string
-  width?: string
-  height?: string
-  fallback?: boolean
+async function fetchHtmlWithRetry(targetUrl: string): Promise<FetchResult> {
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(targetUrl, {
+        headers: buildUpstreamHeaders(),
+        redirect: 'follow',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < MAX_RETRIES) {
+          await backoff(attempt)
+          continue
+        }
+
+        throw new Error(`Upstream response ${response.status}`)
+      }
+
+      const html = await response.text()
+      return { response, html }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown upstream fetch error')
+
+      if (attempt < MAX_RETRIES) {
+        await backoff(attempt)
+        continue
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  throw lastError || new Error('Failed to fetch upstream page')
+}
+
+function backoff(attempt: number): Promise<void> {
+  const jitter = Math.floor(Math.random() * 250)
+  const delay = 350 * 2 ** (attempt - 1) + jitter
+  return new Promise((resolve) => setTimeout(resolve, delay))
+}
+
+function normalizeUrl(value: string): string | null {
+  try {
+    const url = value.startsWith('http://') || value.startsWith('https://') ? value : `https://${value}`
+    return new URL(url).toString()
+  } catch {
+    return null
+  }
+}
+
+function buildUpstreamHeaders() {
+  return {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8',
+    Connection: 'keep-alive',
+    DNT: '1',
+    'Upgrade-Insecure-Requests': '1',
+  }
 }
 
 function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
   const players: PlayerInfo[] = []
   const normalizedHtml = html.replace(/\\\//g, '/')
 
-  // Extract iframes (most common for video embeds)
   const iframeRegex = /<iframe[^>]*\s+src=["']([^"']+)["'][^>]*>/gi
   let match
 
@@ -90,7 +155,6 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     const src = resolveUrl(match[1], pageUrl)
     const fullTag = match[0]
 
-    // Filter out non-video iframes (ads, tracking, etc.)
     if (isVideoPlayer(src, fullTag)) {
       players.push({
         type: 'iframe',
@@ -101,7 +165,6 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  // Extract HTML5 video elements
   const videoRegex =
     /<video[^>]*(?:\s+src=["']([^"']+)["'])?[^>]*>(?:[\s\S]*?<source[^>]*\s+src=["']([^"']+)["'][^>]*>)?/gi
 
@@ -117,7 +180,6 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  // Extract embed elements
   const embedRegex = /<embed[^>]*\s+src=["']([^"']+)["'][^>]*>/gi
 
   while ((match = embedRegex.exec(normalizedHtml)) !== null) {
@@ -130,7 +192,6 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  // Extract object elements (older flash-style embeds)
   const objectRegex =
     /<object[^>]*>[\s\S]*?<param[^>]*name=["']?(?:movie|src)["']?[^>]*value=["']([^"']+)["'][^>]*>[\s\S]*?<\/object>/gi
 
@@ -142,7 +203,6 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     })
   }
 
-  // Look for common video player patterns in data attributes
   const dataVideoRegex = /data-(?:video-?(?:url|src|id)|src|url|embed)=["']([^"']+)["']/gi
 
   while ((match = dataVideoRegex.exec(normalizedHtml)) !== null) {
@@ -155,7 +215,6 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  // Look for direct media links and player endpoints in inline scripts/JSON
   const scriptSourceRegex = /["']((?:https?:)?\/\/[^"']+(?:\.m3u8|\.mpd|\.mp4|\/embed\/[^"']+|\/player\/[^"']+))["']/gi
 
   while ((match = scriptSourceRegex.exec(normalizedHtml)) !== null) {
@@ -168,10 +227,7 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  // Remove duplicates
-  const uniquePlayers = players.filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
-
-  return uniquePlayers
+  return players.filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
 }
 
 function buildProxyPageUrl(targetUrl: string): string {
@@ -259,7 +315,6 @@ function isVideoPlayer(src: string, tag: string): boolean {
   const srcLower = src.toLowerCase()
   const tagLower = tag.toLowerCase()
 
-  // Exclude common non-video iframes
   const excludePatterns = [
     'google.com/recaptcha',
     'googletagmanager',
