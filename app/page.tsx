@@ -123,13 +123,7 @@ export default function HomePage() {
     if (!url.trim()) return
 
     setIsLoading(true)
-    let cleanUrl = url.trim()
-    if (cleanUrl.startsWith("http://")) {
-      cleanUrl = cleanUrl.substring(7)
-    } else if (cleanUrl.startsWith("https://")) {
-      cleanUrl = cleanUrl.substring(8)
-    }
-
+    const cleanUrl = url.trim()
     router.push(`/proxy/${encodeURIComponent(cleanUrl)}`)
   }
 

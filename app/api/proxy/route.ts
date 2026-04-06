@@ -16,7 +16,7 @@ interface FetchResult {
   html: string
 }
 
-const KNOWN_BROADCASTER_HOSTS = ['ntv.ru', 'vgtrk.ru', 'smotrim.ru', 'rtr-planeta.com']
+const KNOWN_BROADCASTER_HOSTS = ['ntv.ru', 'vgtrk.ru', 'smotrim.ru', 'rtr-planeta.com', 'player.vgtrk.com', 'player.smotrim.ru']
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url')
@@ -234,6 +234,9 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
+  const broadcasterPlayers = extractBroadcasterPlayers(normalizedHtml, pageUrl)
+  players.push(...broadcasterPlayers)
+
   const metadataPlayers = extractMetadataPlayers(normalizedHtml, pageUrl)
   players.push(...metadataPlayers)
 
@@ -241,6 +244,61 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     .filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
     .filter((player) => !isLikelyNonPlayerPage(player.src))
     .sort((a, b) => getPlayerScore(b.src) - getPlayerScore(a.src))
+}
+
+function extractBroadcasterPlayers(html: string, pageUrl: string): PlayerInfo[] {
+  const players: PlayerInfo[] = []
+  const decodedHtml = html
+    .replace(/\\u002F/gi, '/')
+    .replace(/\\u003A/gi, ':')
+    .replace(/\\x2f/gi, '/')
+    .replace(/&quot;/gi, '"')
+
+  const matches = new Set<string>()
+  const broadcasterUrlRegex =
+    /(?:https?:)?\/\/(?:player\.)?(?:ntv\.ru|vgtrk\.ru|smotrim\.ru|rtr-planeta\.com|vgtrk\.com)[^\s"'<>\\]*/gi
+
+  let match
+  while ((match = broadcasterUrlRegex.exec(decodedHtml)) !== null) {
+    const resolved = resolveUrl(match[0], pageUrl)
+    matches.add(resolved)
+  }
+
+  const broadcasterPlayerFieldRegex =
+    /["'](?:embed(?:_url|Url)?|player(?:_url|Url)?|video(?:_url|Url)?|stream(?:_url|Url)?|src)["']\s*[:=]\s*["']([^"']+)["']/gi
+
+  while ((match = broadcasterPlayerFieldRegex.exec(decodedHtml)) !== null) {
+    const candidate = match[1]
+    if (/(?:ntv\.ru|vgtrk\.ru|smotrim\.ru|rtr-planeta\.com|vgtrk\.com|\.m3u8|\.mpd|\/player\/|\/embed\/)/i.test(candidate)) {
+      matches.add(resolveUrl(candidate, pageUrl))
+    }
+  }
+
+  try {
+    const parsed = new URL(pageUrl)
+    const isBroadcasterHost = KNOWN_BROADCASTER_HOSTS.some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`))
+    const videoIdMatch = parsed.pathname.match(/\/video\/(\d+)/i)
+    if (isBroadcasterHost && videoIdMatch) {
+      const videoId = videoIdMatch[1]
+      matches.add(`https://player.smotrim.ru/iframe/video/id/${videoId}`)
+      matches.add(`https://player.vgtrk.com/iframe/video/id/${videoId}`)
+      matches.add(`https://player.vgtrk.ru/iframe/video/id/${videoId}`)
+      matches.add(`https://www.ntv.ru/video/${videoId}/`)
+    }
+  } catch {
+    // Ignore URL parsing errors and continue with discovered matches.
+  }
+
+  for (const src of matches) {
+    if (isVideoPlayer(src, src)) {
+      players.push({
+        type: getPlayerType(src),
+        src,
+      })
+    }
+  }
+
+  return players
 }
 
 function resolveUrl(url: string, pageUrl: string): string {
@@ -351,7 +409,8 @@ function isLikelyNonPlayerPage(url: string): boolean {
 
     const isKnownBroadcaster = KNOWN_BROADCASTER_HOSTS.some((broadcasterHost) => host === broadcasterHost || host.endsWith(`.${broadcasterHost}`))
     if (isKnownBroadcaster) {
-      return true
+      const broadcasterPlayerHints = /(embed|player|iframe|stream|playlist|manifest|hls|dash|live|video|smotri|vod)/i
+      return !broadcasterPlayerHints.test(full)
     }
 
     if (path === '/' || path === '') {
