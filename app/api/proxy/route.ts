@@ -16,6 +16,8 @@ interface FetchResult {
   html: string
 }
 
+const KNOWN_BROADCASTER_HOSTS = ['ntv.ru', 'vgtrk.ru', 'smotrim.ru', 'rtr-planeta.com']
+
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url')
 
@@ -190,10 +192,12 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
 
   while ((match = objectRegex.exec(normalizedHtml)) !== null) {
     const src = resolveUrl(match[1], pageUrl)
-    players.push({
-      type: 'object',
-      src,
-    })
+    if (isVideoPlayer(src, match[0])) {
+      players.push({
+        type: 'object',
+        src,
+      })
+    }
   }
 
   const dataVideoRegex = /data-(?:video-?(?:url|src|id)|src|url|embed)=["']([^"']+)["']/gi
@@ -230,7 +234,13 @@ function extractPlayers(html: string, pageUrl: string): PlayerInfo[] {
     }
   }
 
-  return players.filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
+  const metadataPlayers = extractMetadataPlayers(normalizedHtml, pageUrl)
+  players.push(...metadataPlayers)
+
+  return players
+    .filter((player, index, self) => index === self.findIndex((p) => p.src === player.src))
+    .filter((player) => !isLikelyNonPlayerPage(player.src))
+    .sort((a, b) => getPlayerScore(b.src) - getPlayerScore(a.src))
 }
 
 function resolveUrl(url: string, pageUrl: string): string {
@@ -303,6 +313,77 @@ function extractScriptLikeUrls(html: string, pageUrl: string): string[] {
   }
 
   return [...matches]
+}
+
+function extractMetadataPlayers(html: string, pageUrl: string): PlayerInfo[] {
+  const players: PlayerInfo[] = []
+  const metadataRegex =
+    /<meta[^>]+(?:property|name)=["'](?:og:video(?::secure_url)?|twitter:player|vk:player)["'][^>]+content=["']([^"']+)["'][^>]*>/gi
+
+  let match
+  while ((match = metadataRegex.exec(html)) !== null) {
+    const src = resolveUrl(match[1], pageUrl)
+    if (isVideoPlayer(src, match[0])) {
+      players.push({
+        type: getPlayerType(src),
+        src,
+      })
+    }
+  }
+
+  return players
+}
+
+function isLikelyNonPlayerPage(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
+    const full = `${host}${path}${parsed.search}`.toLowerCase()
+
+    if (/\.(m3u8|mpd|mp4|webm|m3u)(\?|$)/i.test(full)) {
+      return false
+    }
+
+    if (/(embed|player|iframe|stream|playlist|manifest|hls|dash|live|video)/i.test(full)) {
+      return false
+    }
+
+    const isKnownBroadcaster = KNOWN_BROADCASTER_HOSTS.some((broadcasterHost) => host === broadcasterHost || host.endsWith(`.${broadcasterHost}`))
+    if (isKnownBroadcaster) {
+      return true
+    }
+
+    if (path === '/' || path === '') {
+      return true
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function getPlayerScore(url: string): number {
+  const value = url.toLowerCase()
+
+  if (/\.(m3u8|mpd|mp4|webm|m3u)(\?|$)/i.test(value)) {
+    return 100
+  }
+
+  if (/(manifest|playlist|hls|dash|stream)/i.test(value)) {
+    return 80
+  }
+
+  if (/(player|embed|iframe)/i.test(value)) {
+    return 70
+  }
+
+  if (/live|video/.test(value)) {
+    return 60
+  }
+
+  return 10
 }
 
 function isVideoPlayer(src: string, tag: string): boolean {
@@ -389,5 +470,9 @@ function isVideoPlayer(src: string, tag: string): boolean {
     return false
   }
 
-  return videoPatterns.some((pattern) => srcLower.includes(pattern) || tagLower.includes(pattern))
+  if (!videoPatterns.some((pattern) => srcLower.includes(pattern) || tagLower.includes(pattern))) {
+    return false
+  }
+
+  return !isLikelyNonPlayerPage(srcLower)
 }
