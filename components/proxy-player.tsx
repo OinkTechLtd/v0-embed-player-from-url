@@ -31,6 +31,35 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
   const [copied, setCopied] = useState(false)
   const [showEmbedCode, setShowEmbedCode] = useState(false)
 
+  const buildFallbackPlayer = (source?: string): PlayerInfo => {
+    const targetUrl = source?.startsWith("http") ? source : url.startsWith("http") ? url : `https://${url}`
+    return {
+      type: "iframe",
+      src: `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`,
+    }
+  }
+
+  const ensurePlayers = (result: ProxyResult | null): ProxyResult => {
+    if (!result) {
+      return {
+        success: true,
+        message: "Fallback mode enabled.",
+        players: [buildFallbackPlayer()],
+      }
+    }
+
+    if (result.players && result.players.length > 0) {
+      return result
+    }
+
+    return {
+      ...result,
+      success: true,
+      message: result.message || "Direct player source missing. Using fallback player.",
+      players: [buildFallbackPlayer(result.sourceUrl)],
+    }
+  }
+
   const fetchPlayer = async () => {
     setLoading(true)
     const targetUrl = url.startsWith('http') ? url : `https://${url}`
@@ -48,7 +77,8 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
             signal: controller.signal,
           })
 
-          result = await response.json()
+          const payload = await response.json().catch(() => null)
+          result = payload as ProxyResult | null
 
           if (response.ok || attempt === 3) {
             break
@@ -64,12 +94,13 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 500))
       }
 
-      setData(result)
+      setData(ensurePlayers(result))
     } catch {
-      setData({
-        error: "fetch_error",
-        message: "Failed to connect after several retries. Проверьте интернет и попробуйте снова.",
-      })
+      setData(
+        ensurePlayers({
+          message: "Failed to connect after several retries. Fallback mode enabled.",
+        }),
+      )
     } finally {
       setLoading(false)
     }
@@ -103,7 +134,7 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
     )
   }
 
-  // Error state - no player found
+  // Error state
   if (data?.error) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center p-4">
@@ -145,7 +176,17 @@ export function ProxyPlayer({ url }: ProxyPlayerProps) {
   const currentPlayer = players[selectedPlayer]
 
   if (!currentPlayer) {
-    return null
+    return (
+      <div className="fixed inset-0 bg-background flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center">
+          <p className="text-muted-foreground mb-4">Player source is temporarily unavailable.</p>
+          <Button onClick={fetchPlayer} className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (
